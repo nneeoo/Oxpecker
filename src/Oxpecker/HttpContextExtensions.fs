@@ -133,7 +133,7 @@ type HttpContextExtensions() =
     /// </summary>
     /// <returns>Returns an instance of `'T`.</returns>
     [<Extension>]
-    static member GetService<'T>(ctx: HttpContext) =
+    static member GetService<'T when 'T: not null>(ctx: HttpContext) =
         let t = typeof<'T>
         match ctx.RequestServices.GetService t with
         | null -> raise <| MissingDependencyException t.Name
@@ -284,25 +284,34 @@ type HttpContextExtensions() =
     /// <param name="htmlView">An `HtmlElement` object to be send back to the client and which represents a valid HTML view.</param>
     /// <returns>Task of writing to the body of the response.</returns>
     [<Extension>]
-    static member WriteHtmlView(ctx: HttpContext, htmlView: #HtmlElement) =
+    static member WriteHtmlView(ctx: HttpContext, htmlView: #HtmlElement) : Task =
         let sb = Tools.StringBuilderPool.Get().AppendLine("<!DOCTYPE html>")
         ctx.Response.ContentType <- "text/html; charset=utf-8"
         if ctx.Request.Method <> HttpMethods.Head then
-            let textWriter = new HttpResponseStreamWriter(ctx.Response.Body, Encoding.UTF8)
-            task {
-                use _ = textWriter :> IAsyncDisposable
                 try
-                    htmlView.Render(sb)
-                    ctx.Response.ContentLength <- sb.Length
-                    return! textWriter.WriteAsync(sb)
+                    htmlView.Render sb
+                    use ms = Tools.streamManager.GetStream()
+                    let mutable ce = sb.GetChunks()
+
+                    let mutable acc = 0L
+                    while ce.MoveNext() do
+                     acc <- Encoding.UTF8.GetBytes(ce.Current.Span, ms) + acc
+
+                    ctx.Response.ContentLength <- acc
+                    Task.CompletedTask
                 finally
                     Tools.StringBuilderPool.Return(sb)
-            }
-            :> Task
+
         else
             try
-                htmlView.Render(sb)
-                ctx.Response.ContentLength <- sb.Length
+                htmlView.Render sb
+                let mutable ce = sb.GetChunks()
+
+                let mutable acc = 0
+                while ce.MoveNext() do
+                     acc <- Encoding.UTF8.GetByteCount ce.Current.Span + acc
+
+                ctx.Response.ContentLength <-  acc
                 Task.CompletedTask
             finally
                 Tools.StringBuilderPool.Return(sb)

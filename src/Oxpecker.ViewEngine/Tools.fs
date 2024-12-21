@@ -4,9 +4,10 @@ open System
 open System.Buffers
 open System.Text
 open Microsoft.Extensions.ObjectPool
+open Microsoft.IO
 
 let StringBuilderPool = DefaultObjectPoolProvider().CreateStringBuilderPool()
-
+let streamManager = RecyclableMemoryStreamManager()
 /// <summary>
 /// Checks if an object is not null.
 /// </summary>
